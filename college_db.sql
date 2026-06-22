@@ -324,3 +324,162 @@ SELECT fn_enroll_student(1,2,'2025-01-01');
 
 
 
+CREATE TABLE department_transfer_log (
+    log_id SERIAL PRIMARY KEY,
+    student_id INT,
+    old_department_id INT,
+    new_department_id INT,
+    transfer_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE OR REPLACE FUNCTION fn_transfer_student(
+    p_student_id INT,
+    p_new_department_id INT
+)
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_old_department INT;
+BEGIN
+
+    SELECT department_id
+    INTO v_old_department
+    FROM students
+    WHERE student_id = p_student_id;
+
+    UPDATE students
+    SET department_id = p_new_department_id
+    WHERE student_id = p_student_id;
+
+    INSERT INTO department_transfer_log(
+        student_id,
+        old_department_id,
+        new_department_id
+    )
+    VALUES (
+        p_student_id,
+        v_old_department,
+        p_new_department_id
+    );
+
+END;
+$$;
+
+
+
+SELECT student_id,
+       department_id
+FROM students
+WHERE student_id = 1;
+
+SELECT fn_transfer_student(
+    1,
+    9999
+);
+
+
+
+BEGIN;
+INSERT INTO enrollments(
+    student_id,
+    course_id,
+    enrollment_date
+)
+VALUES (
+    2,
+    1,
+    CURRENT_DATE
+);
+SAVEPOINT first_enrollment;
+INSERT INTO enrollments(
+    student_id,
+    course_id,
+    enrollment_date
+)
+VALUES (
+    9999,
+    2,
+    CURRENT_DATE
+);
+ROLLBACK TO SAVEPOINT first_enrollment;
+COMMIT;
+
+
+
+
+--Hands on 4
+--task 1:Baseline Performance
+
+EXPLAIN
+SELECT
+    s.first_name,
+    s.last_name,
+    c.course_name
+FROM enrollments e
+JOIN students s
+ON s.student_id = e.student_id
+JOIN courses c
+ON c.course_id = e.course_id
+WHERE s.enrollment_year = 2022;
+
+-- ==============================
+-- Baseline Performance Analysis
+-- ==============================
+
+-- Query analyzed using EXPLAIN:
+-- SELECT s.first_name, s.last_name, c.course_name
+-- FROM enrollments e
+-- JOIN students s ON s.student_id = e.student_id
+-- JOIN courses c ON c.course_id = e.course_id
+-- WHERE s.enrollment_year = 2022;
+
+-- PostgreSQL execution plan showed a Seq Scan on enrollments.
+-- Estimated cost for enrollments scan: cost=0.00..24.50.
+
+-- PostgreSQL execution plan showed a Seq Scan on students.
+-- Estimated cost for students scan: cost=0.00..12.00.
+-- The filter applied was enrollment_year = 2022.
+
+-- PostgreSQL used an Index Scan on courses via courses_pkey.
+-- This indicates the primary key index was used for course lookup.
+
+-- Overall estimated query cost: cost=12.16..42.16.
+
+-- Sequential scans are acceptable for small tables,
+-- but may become a performance bottleneck as table size increases.
+
+
+
+
+--task 2: Add indexes and compare plans
+
+CREATE INDEX idx_students_enrollment_year
+ON students(enrollment_year);
+SELECT *
+FROM pg_indexes
+WHERE tablename = 'students';
+
+
+CREATE UNIQUE INDEX idx_enrollments_student_course
+ON enrollments(student_id, course_id);
+INSERT INTO enrollments(student_id, course_id)
+VALUES (1,1);
+
+
+CREATE INDEX idx_courses_course_code
+ON courses(course_code);
+
+
+CREATE INDEX idx_enrollments_null_grade
+ON enrollments(student_id)
+WHERE grade IS NULL;
+SELECT *
+FROM enrollments
+WHERE grade IS NULL;
+
+
+
+
+
+
